@@ -1,0 +1,1 @@
+export * as TemplateService from './template.service';

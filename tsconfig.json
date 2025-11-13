@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "rootDir": ".", 
+    "target": "ES2019",
+    "module": "CommonJS",
+    "baseUrl": ".", 
+    "strict": true,
+    "esModuleInterop": true,
+    "moduleResolution": "node",
+    "outDir": "dist",
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "types": ["node", "jest"],
+    "typeRoots": [ "node_modules/@types"],
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "sourceMap": true,
+    "inlineSources": true,
+    "sourceRoot": "/",
+    "paths": {
+      "@/v1/*": ["src/api/v1/*"],
+      "@prismaClient": ["prisma/client/prismaClient.ts"],
+      "@config/*": ["src/config/*"],
+    }
+  },
+  "include": ["src/**/*.ts", "prisma/client/prismaClient.ts"],
+  "exclude": ["node_modules", "dist"],
+  "ts-node": { 
+    "require": ["tsconfig-paths/register"] 
+  } 
+}

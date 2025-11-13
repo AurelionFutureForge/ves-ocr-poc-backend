@@ -1,0 +1,38 @@
+# Node Modules
+node_modules
+dist
+scripts
+
+# Environment Variables
+.env
+.env.backup
+.excalidraw
+# /src/config/firebaseServiceAccount.json
+
+# Logs
+combined.log
+error.log
+*.log
+.DS_Store
+.vscode
+
+# Coverage
+coverage
+
+# Jest Config
+jest.config.ts
+
+# Sentry Config File
+.sentryclirc
+
+# Docker
+.dockerignore
+
+# NPM
+npm-debug.log*
+
+# Build Directories
+dist
+
+# Seed Files
+seed

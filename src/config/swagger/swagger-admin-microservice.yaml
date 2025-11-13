@@ -1,0 +1,253 @@
+swagger: '2.0'
+info:
+  title: Admin MicroService
+  version: 1.0.0
+  basePath: /v1/
+  contact:
+    email: venkatesangunaraj@gmail.com
+  servers:
+    - description: This is a Local server
+      url: http://localhost:8001/v1
+  x-logo:
+    altText: Custom Label
+    url: https://example.com/path-to-your-logo.png
+
+basePath: /v1
+
+paths:
+  /auth/login:
+    post:
+      tags:
+        - Auth
+      summary: Login user with phone number
+      description: Start authentication process with phone number
+      produces:
+        - application/json
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/PhoneNumber'
+      responses:
+        200:
+          description: OTP sent successfully
+          schema:
+            type: object
+            properties:
+              otp_id:
+                type: string
+        400:
+          description: Invalid phone number
+
+  /auth/verify-otp:
+    post:
+      tags:
+        - Auth
+      summary: Verify OTP
+      description: Verify the OTP sent to user
+      produces:
+        - application/json
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/VerifyOtp'
+      responses:
+        200:
+          description: OTP verified successfully
+        400:
+          description: Invalid OTP
+
+  /auth/resend-otp:
+    post:
+      tags:
+        - Auth
+      summary: Resend OTP
+      description: Resend OTP to user
+      produces:
+        - application/json
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/OtpRequest'
+      responses:
+        200:
+          description: OTP sent successfully
+        400:
+          description: Invalid request
+
+  /auth/refresh-token:
+    post:
+      tags:
+        - Auth
+      summary: Refresh Token
+      description: Get new access token using refresh token
+      produces:
+        - application/json
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/RefreshToken'
+      responses:
+        200:
+          description: Token refreshed successfully
+        401:
+          description: Invalid refresh token
+
+  /users/{user_id}/exist:
+    get:
+      tags:
+        - Users
+      summary: Check if user exists
+      description: Check if a user exists by ID
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          type: string
+      responses:
+        200:
+          description: User exists
+        404:
+          description: User not found
+
+  /users/{user_id}:
+    get:
+      tags:
+        - Users
+      summary: Get user details
+      description: Get user details by ID
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          type: string
+      responses:
+        200:
+          description: User details retrieved successfully
+          schema:
+            $ref: '#/definitions/UserUpdate'
+        404:
+          description: User not found
+
+  /users:
+    put:
+      tags:
+        - Users
+      summary: Update user
+      description: Update user details
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/UserUpdate'
+      responses:
+        200:
+          description: User updated successfully
+        400:
+          description: Invalid input
+        404:
+          description: User not found
+
+securityDefinitions:
+  BearerAuth:
+    type: apiKey
+    name: Authorization
+    in: header
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Auth
+    description: Authentication related endpoints
+  - name: Users
+    description: User management endpoints
+
+schemes:
+  - 'http'
+
+definitions:
+  CmsUser:
+    type: object
+    properties:
+      name:
+        type: string
+      email:
+        type: string
+      password:
+        type: string
+      role:
+        type: string
+        enum: [SUPER_ADMIN, ADMIN, PRODUCT_ADMIN]
+  
+  PhoneNumber:
+    type: object
+    required:
+      - phone_number
+    properties:
+      phone_number:
+        type: string
+        minLength: 10
+        maxLength: 15
+        pattern: '^[0-9]+$'
+        description: Mobile number must be between 10-15 digits
+
+  OtpRequest:
+    type: object
+    required:
+      - otp_id
+    properties:
+      otp_id:
+        type: string
+
+  VerifyOtp:
+    type: object
+    required:
+      - otp_id
+      - otp
+    properties:
+      otp_id:
+        type: string
+      otp:
+        type: string
+        pattern: '^[0-9]{6}$'
+        description: Must be exactly 6 digits
+
+  UserUpdate:
+    type: object
+    required:
+      - name
+    properties:
+      name:
+        type: string
+      profile_image_url:
+        type: string
+      upi_id:
+        type: string
+        pattern: '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+$'
+        description: UPI ID in valid format
+      location:
+        type: string
+      date_of_birth:
+        type: string
+        format: date
+        description: ISO 8601 date string
+      bio:
+        type: string
+
+  RefreshToken:
+    type: object
+    required:
+      - refresh_token
+    properties:
+      refresh_token:
+        type: string
+        minLength: 1
+        description: Valid refresh token

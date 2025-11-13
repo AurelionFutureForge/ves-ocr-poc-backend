@@ -1,0 +1,96 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ocr_status {
+  PENDING
+  DONE
+  FAILED
+}
+
+model template {
+  template_id   String           @id @default(uuid())
+  name          String           @unique
+  description   String?
+  pdf_url       String?
+  created_at    DateTime         @default(now())
+  updated_at    DateTime         @updatedAt
+
+  fields        template_field[]
+  ocr_runs      ocr_run[]
+}
+
+model template_field {
+  field_id      String    @id @default(uuid())
+  template_id   String
+  field_name    String
+  label         String?
+  page_number   Int
+  x_norm        Float
+  y_norm        Float
+  w_norm        Float
+  h_norm        Float
+  sample_value  String?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  template      template  @relation(fields: [template_id], references: [template_id], onDelete: Cascade)
+}
+
+model file_store {
+  file_id       String    @id @default(uuid())
+  file_name     String
+  file_type     String
+  uri           String
+  size_bytes    Int?
+  created_at    DateTime  @default(now())
+
+  input_runs    ocr_run[]  @relation("run_input_file")
+  output_runs   ocr_run[]  @relation("run_output_file")
+}
+
+model ocr_run {
+  run_id        String      @id @default(uuid())
+  template_id   String
+  input_file_id String
+  status        ocr_status  @default(PENDING)
+  ocr_score     Float?
+  total_fields  Int?
+  matched_fields Int?
+  notes         String?
+  created_at    DateTime    @default(now())
+  finished_at   DateTime?
+
+  template      template    @relation(fields: [template_id], references: [template_id])
+  input_file    file_store  @relation("run_input_file", fields: [input_file_id], references: [file_id])
+  output_file   file_store? @relation("run_output_file", fields: [output_file_id], references: [file_id])
+  output_file_id String?
+
+  field_results ocr_field_result[]
+}
+
+model ocr_field_result {
+  result_id     String   @id @default(uuid())
+  run_id        String
+  field_id      String
+  field_name    String
+  page_number   Int
+  raw_text      String?
+  cleaned_text  String?
+  confidence    Float?
+  matched       Boolean?
+  validator_msg String?
+  x_norm        Float
+  y_norm        Float
+  w_norm        Float
+  h_norm        Float
+  created_at    DateTime @default(now())
+
+  run           ocr_run         @relation(fields: [run_id], references: [run_id], onDelete: Cascade)
+}
