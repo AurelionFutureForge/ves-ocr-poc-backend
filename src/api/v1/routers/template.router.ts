@@ -23,6 +23,8 @@ const upload = multer({
 templateRouter.get("/", TemplateController.getAllTemplatesController);
 templateRouter.get("/:template_id", TemplateController.getTemplateByIdController);
 templateRouter.put("/:template_id", TemplateController.updateTemplateController);
+
+// Template field routes
 templateRouter.post("/:template_id/fields", TemplateController.addTemplateFieldController);
 templateRouter.put("/:template_id/fields/:field_id", TemplateController.updateTemplateFieldController);
 templateRouter.delete("/:template_id/fields/:field_id", TemplateController.deleteTemplateFieldController);

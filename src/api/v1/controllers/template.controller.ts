@@ -39,7 +39,7 @@ export const updateTemplateController = async (req: Request, res: Response, next
 // Add template field
 export const addTemplateFieldController = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { template_id, field_name, label, page_number, x_norm, y_norm, w_norm, h_norm, sample_value, sample_extracted_value, confidence_score, field_status, notes } = 
+    const { template_id, field_name, label, page_number, x_norm, y_norm, w_norm, h_norm, sample_value, sample_extracted_value } = 
       AddTemplateFieldSchema.parse({ params: req.params, body: req.body });
     const response = await TemplateService.addTemplateField(
       template_id, 
@@ -51,10 +51,7 @@ export const addTemplateFieldController = async (req: Request, res: Response, ne
       w_norm, 
       h_norm, 
       sample_value,
-      sample_extracted_value,
-      confidence_score,
-      field_status,
-      notes
+      sample_extracted_value
     );
     sendResponse(res, response.status, response.success, response.message, response.data);
   } catch (error) {

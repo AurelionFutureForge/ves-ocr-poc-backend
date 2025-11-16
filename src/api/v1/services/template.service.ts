@@ -314,7 +314,11 @@ export const updateTemplateField = async (
         ...(w_norm !== undefined && { w_norm }),
         ...(h_norm !== undefined && { h_norm }),
         ...(sample_value !== undefined && { sample_value }),
-        ...(sample_extracted_value !== undefined && { sample_extracted_value })
+        ...(sample_extracted_value !== undefined && { sample_extracted_value }),
+        sample_extracted_value: null,
+        confidence_score: null,
+        field_status: "pending",
+        notes: null,
       },
     });
 
@@ -346,8 +350,6 @@ export const updateTemplateField = async (
     throw error;
   }
 };
-
-
 
 export const deleteTemplateField = async (
   template_id: string,
