@@ -28,7 +28,7 @@ templateRouter.put("/:template_id", TemplateController.updateTemplateController)
 templateRouter.post("/:template_id/fields", TemplateController.addTemplateFieldController);
 templateRouter.put("/:template_id/fields/:field_id", TemplateController.updateTemplateFieldController);
 templateRouter.delete("/:template_id/fields/:field_id", TemplateController.deleteTemplateFieldController);
+templateRouter.post("/:template_id/fields/:field_id/verify-ocr", upload.single('document'), TemplateController.verifyFieldOcrController);
 templateRouter.post("/:template_id/extract-ocr", upload.single('document'), TemplateController.extractOcrFromTemplateController);
 
 export default templateRouter;
-

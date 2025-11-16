@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { GetTemplatesSchema, GetTemplateByIdSchema, UpdateTemplateSchema, AddTemplateFieldSchema, UpdateTemplateFieldSchema, DeleteTemplateFieldSchema } from '@/v1/validations';
+import { GetTemplatesSchema, GetTemplateByIdSchema, UpdateTemplateSchema, AddTemplateFieldSchema, UpdateTemplateFieldSchema, DeleteTemplateFieldSchema, VerifyFieldOcrSchema } from '@/v1/validations';
 import { TemplateService } from '@/v1/services';
 import { sendResponse } from '@/v1/utils';
 
@@ -91,6 +91,28 @@ export const deleteTemplateFieldController = async (req: Request, res: Response,
     const response = await TemplateService.deleteTemplateField(
       template_id, 
       field_id
+    );
+    sendResponse(res, response.status, response.success, response.message, response.data);
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Verify field OCR
+export const verifyFieldOcrController = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { template_id, field_id, aggressive } = VerifyFieldOcrSchema.parse({ params: req.params, body: req.body });
+
+    // Get file from request
+    if (!req.file) {
+      throw new Error('No file uploaded. Please provide an image or PDF file.');
+    }
+
+    const response = await TemplateService.verifyFieldOcr(
+      template_id,
+      field_id,
+      req.file.buffer,
+      aggressive
     );
     sendResponse(res, response.status, response.success, response.message, response.data);
   } catch (error) {

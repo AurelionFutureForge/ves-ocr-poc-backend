@@ -121,3 +121,18 @@ export const DeleteTemplateFieldSchema = z.object({
   template_id: params.template_id,
   field_id: params.field_id,
 }));
+
+// Verify field OCR schema
+export const VerifyFieldOcrSchema = z.object({
+  params: z.object({
+    template_id: z.string().uuid("Invalid template ID format"),
+    field_id: z.string().uuid("Invalid field ID format"),
+  }),
+  body: z.object({
+    aggressive: z.boolean().optional(),
+  }),
+}).transform(({ params, body }) => ({
+  template_id: params.template_id,
+  field_id: params.field_id,
+  aggressive: body.aggressive ?? false,
+}));

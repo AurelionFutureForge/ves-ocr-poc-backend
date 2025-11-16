@@ -399,6 +399,100 @@ export const deleteTemplateField = async (
   }
 };
 
+export const verifyFieldOcr = async (
+  template_id: string,
+  field_id: string,
+  imageBuffer: Buffer,
+  aggressive?: boolean,
+) => {
+  try {
+    // Step 1: Check if the template exists
+    const existingTemplate = await prisma.template.findUnique({
+      where: { template_id },
+    });
+
+    if (!existingTemplate) {
+      throw new AppError("Template not found", 404);
+    }
+
+    // Step 2: Check if the field exists and belongs to this template
+    const existingField = await prisma.template_field.findUnique({
+      where: { field_id },
+    });
+
+    if (!existingField) {
+      throw new AppError("Field not found", 404);
+    }
+
+    if (existingField.template_id !== template_id) {
+      throw new AppError("Field does not belong to this template", 400);
+    }
+
+    // Step 3: Extract text from the field region
+    const extractedData = await OcrService.extractTextFromRegion(
+      imageBuffer,
+      {
+        x_norm: existingField.x_norm,
+        y_norm: existingField.y_norm,
+        w_norm: existingField.w_norm,
+        h_norm: existingField.h_norm,
+        page_number: existingField.page_number,
+      },
+      aggressive
+    );
+
+    // Step 4: Determine field status based on confidence
+    let fieldStatus = "pending";
+    let notes = extractedData.notes; // Start with OCR extraction notes
+    
+    if (extractedData.confidence !== null && extractedData.confidence !== undefined) {
+      if (extractedData.confidence >= 85 && extractedData.text.trim().length > 0) {
+        fieldStatus = "good";
+        notes = null; // No review needed for high confidence
+      } else if (extractedData.confidence >= 50 && extractedData.text.trim().length > 0) {
+        fieldStatus = "medium_confidence";
+        notes = `Human Review Recommended: Confidence is moderate (${extractedData.confidence.toFixed(1)}%). Please verify the extracted text: "${extractedData.text}" before using it. You might need manual verification for this field.`;
+      } else if (extractedData.confidence < 50 && extractedData.text.trim().length > 0) {
+        fieldStatus = "low_confidence";
+        notes = `Human Review Required: Confidence is low (${extractedData.confidence.toFixed(1)}%). Extracted text: "${extractedData.text}". Manual verification is strongly recommended before converting this field.`;
+      } else if (extractedData.text.trim().length === 0) {
+        fieldStatus = "no_data";
+        notes = extractedData.notes || "No text detected in marked region. Please manually enter the data for this field.";
+      }
+    }
+
+    // Step 5: Update the field with OCR results
+    const updatedField = await prisma.template_field.update({
+      where: { field_id },
+      data: {
+        sample_extracted_value: extractedData.text || null,
+        confidence_score: extractedData.confidence || null,
+        field_status: fieldStatus,
+        notes: notes,
+      },
+    });
+
+    return {
+      status: 200,
+      success: true,
+      message: "Field OCR verification completed successfully.",
+      data: {
+        field_id: updatedField.field_id,
+        template_id: updatedField.template_id,
+        field_name: updatedField.field_name,
+        label: updatedField.label,
+        sample_extracted_value: updatedField.sample_extracted_value,
+        confidence_score: updatedField.confidence_score,
+        field_status: updatedField.field_status,
+        notes: updatedField.notes,
+      },
+    };
+  } catch (error) {
+    logger.error("❌ Error in verifyFieldOcr:", error);
+    throw error;
+  }
+};
+
 export const extractOcrFromTemplate = async (
   template_id: string,
   imageBuffer: Buffer,
