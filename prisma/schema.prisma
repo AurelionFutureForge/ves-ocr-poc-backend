@@ -27,20 +27,24 @@ model template {
 }
 
 model template_field {
-  field_id      String    @id @default(uuid())
-  template_id   String
-  field_name    String
-  label         String?
-  page_number   Int
-  x_norm        Float
-  y_norm        Float
-  w_norm        Float
-  h_norm        Float
-  sample_value  String?
-  created_at    DateTime  @default(now())
-  updated_at    DateTime  @updatedAt
+  field_id              String    @id @default(uuid())
+  template_id           String
+  field_name            String
+  label                 String?
+  page_number           Int
+  x_norm                Float
+  y_norm                Float
+  w_norm                Float
+  h_norm                Float
+  sample_value          String?
+  sample_extracted_value String?
+  confidence_score      Float?
+  field_status          String?   @default("pending")
+  notes                 String?
+  created_at            DateTime  @default(now())
+  updated_at            DateTime  @updatedAt
 
-  template      template  @relation(fields: [template_id], references: [template_id], onDelete: Cascade)
+  template              template  @relation(fields: [template_id], references: [template_id], onDelete: Cascade)
 }
 
 model file_store {
