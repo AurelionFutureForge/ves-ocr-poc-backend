@@ -5,6 +5,7 @@ import { FormParserService } from '@/v1/services/form-parser.service';
 import { sendResponse } from '@/v1/utils';
 import { AppError } from '@/v1/middlewares/errorHandler.middleware';
 import logger from '@/v1/utils/logger';
+import ExcelJS from 'exceljs';
 
 // Process OCR from uploaded file
 export const processOcrController = async (req: Request, res: Response, next: NextFunction) => {
@@ -131,10 +132,12 @@ export const extractTemplateFieldsController = async (req: Request, res: Respons
       logger.info(`✓ Page ${currentPageNum}: ${successCount}/${fieldsOnPage.length} fields extracted`);
     }
 
-    // Step 3: Generate ONE Excel sheet with all extracted data
-    const excel = generateExcelData(allExtractedFields, template.name);
+    const excelData = await generateExcelFile(allExtractedFields, template.name, pageResults);
 
-    // Return combined results
+    // Step 3: Generate ONE Excel sheet with all extracted data
+    const excelBuffer = await generateExcelFile(allExtractedFields, template.name, pageResults);
+
+    // Create response object with metadata
     const response = {
       templateId,
       templateName: template.name,
@@ -144,38 +147,172 @@ export const extractTemplateFieldsController = async (req: Request, res: Respons
       fileType: 'images',
       extractedFields: allExtractedFields,
       pageResults: pageResults,
-      excel: excel // ← ONE Excel sheet with all pages
+      excelData: excelData,
+      excel: {
+        filename: `${template.name}_extracted_${new Date().toISOString().split('T')[0]}.xlsx`,
+        sheetName: `${template.name} - Extract`,
+        rows: allExtractedFields.length
+      }
     };
 
     logger.info(`✅ Extraction complete: ${response.successfulExtractions}/${response.totalFields} fields extracted from ${files.length} pages`);
+    logger.info(`📊 Excel file generated: ${response.excel.filename}`);
 
-    sendResponse(res, 200, true, 'Template extraction completed successfully', response);
+    // Send the Excel file as download
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${response.excel.filename}"`);
+    res.setHeader('X-Extraction-Data', JSON.stringify(response));
+    
+    return res.send(excelBuffer);
   } catch (error) {
     next(error);
   }
 };
 
 /* -------------------------------------------------------
-   GENERATE EXCEL DATA
+   GENERATE EXCEL FILE using ExcelJS
 ---------------------------------------------------------*/
-function generateExcelData(extractedFields: any[], templateName: string): any {
+async function generateExcelFile(
+  extractedFields: any[],
+  templateName: string,
+  pageResults: any[]
+): Promise<Buffer> {
   try {
-    // Format for Excel export
-    const excelRows = extractedFields.map((field) => ({
-      'Field Name': field.field_name,
-      'Extracted Text': field.raw_text || '---',
-      'Confidence %': field.confidence || 0,
-      'Status': field.raw_text ? '✓ Found' : '✗ Not Found',
-      'Notes': field.notes || ''
-    }));
+    // Create workbook and worksheet
+    const workbook = new ExcelJS.Workbook();
+    
+    // Add main extraction sheet
+    const extractSheet = workbook.addWorksheet(`${templateName} - Extract`);
+    
+    // Define columns
+    extractSheet.columns = [
+      { header: 'Field Name', key: 'field_name', width: 25 },
+      { header: 'Extracted Text', key: 'raw_text', width: 40 },
+      { header: 'Confidence %', key: 'confidence', width: 15 },
+      { header: 'Status', key: 'status', width: 15 },
+      { header: 'Page', key: 'page', width: 10 },
+      { header: 'Notes', key: 'notes', width: 30 }
+    ];
 
-    return {
-      sheetName: `${templateName} - Extract`,
-      data: excelRows,
-      filename: `${templateName}_extracted_${new Date().toISOString().split('T')[0]}.xlsx`
-    };
+    // Style header row
+    const headerRow = extractSheet.getRow(1);
+    headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF366092' } };
+    headerRow.alignment = { horizontal: 'center' as any, vertical: 'middle', wrapText: true };
+
+    // Add data rows with formatting
+    extractedFields.forEach((field, index) => {
+      // Find which page this field belongs to
+      let pageNum = 1;
+      for (const pageResult of pageResults) {
+        const found = pageResult.fields.find((f: any) => f.field_id === field.field_id);
+        if (found) {
+          pageNum = pageResult.pageNumber;
+          break;
+        }
+      }
+
+      const row = extractSheet.addRow({
+        field_name: field.field_name,
+        raw_text: field.raw_text || '---',
+        confidence: field.confidence || 0,
+        status: field.raw_text ? '✓ Found' : '✗ Not Found',
+        page: pageNum,
+        notes: field.notes || ''
+      });
+
+      // Alternate row colors
+      if (index % 2 === 0) {
+        row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
+      }
+
+      // Center align certain columns
+      row.getCell('confidence').alignment = { horizontal: 'center' };
+      row.getCell('page').alignment = { horizontal: 'center' };
+      row.getCell('status').alignment = { horizontal: 'center' };
+
+      // Color status based on extraction
+      if (field.raw_text) {
+        row.getCell('status').font = { color: { argb: 'FF00B050' }, bold: true }; // Green
+      } else {
+        row.getCell('status').font = { color: { argb: 'FFFF0000' }, bold: true }; // Red
+      }
+    });
+
+    // Add summary sheet
+    const summarySheet = workbook.addWorksheet('Summary');
+    summarySheet.columns = [
+      { header: 'Metric', key: 'metric', width: 25 },
+      { header: 'Value', key: 'value', width: 20 }
+    ];
+
+    // Style summary header
+    const summaryHeader = summarySheet.getRow(1);
+    summaryHeader.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    summaryHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF366092' } };
+
+    // Add summary data
+    const totalExtracted = extractedFields.filter(f => f.raw_text).length;
+    const summaryData = [
+      { metric: 'Template Name', value: templateName },
+      { metric: 'Total Pages', value: pageResults.length },
+      { metric: 'Total Fields', value: extractedFields.length },
+      { metric: 'Successfully Extracted', value: totalExtracted },
+      { metric: 'Extraction Rate', value: `${Math.round((totalExtracted / extractedFields.length) * 100)}%` },
+      { metric: 'Generated Date', value: new Date().toISOString() }
+    ];
+
+    summaryData.forEach((data, index) => {
+      const row = summarySheet.addRow(data);
+      if (index % 2 === 0) {
+        row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
+      }
+    });
+
+    // Add page breakdown sheet if multiple pages
+    if (pageResults.length > 1) {
+      const pageBreakSheet = workbook.addWorksheet('Page Breakdown');
+      pageBreakSheet.columns = [
+        { header: 'Page Number', key: 'page', width: 15 },
+        { header: 'Fields on Page', key: 'total_fields', width: 15 },
+        { header: 'Extracted', key: 'extracted', width: 15 },
+        { header: 'Success Rate', key: 'success_rate', width: 15 }
+      ];
+
+      const pageHeader = pageBreakSheet.getRow(1);
+      pageHeader.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      pageHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF366092' } };
+
+      pageResults.forEach((pageResult, index) => {
+        const extracted = pageResult.fields.filter((f: any) => f.raw_text).length;
+        const total = pageResult.fields.length;
+        const rate = total > 0 ? Math.round((extracted / total) * 100) : 0;
+
+        const row = pageBreakSheet.addRow({
+          page: pageResult.pageNumber,
+          total_fields: total,
+          extracted: extracted,
+          success_rate: `${rate}%`
+        });
+
+        if (index % 2 === 0) {
+          row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
+        }
+
+        row.getCell('page').alignment = { horizontal: 'center' };
+        row.getCell('total_fields').alignment = { horizontal: 'center' };
+        row.getCell('extracted').alignment = { horizontal: 'center' };
+        row.getCell('success_rate').alignment = { horizontal: 'center' };
+      });
+    }
+
+    // Generate Excel buffer
+    const buffer = await workbook.xlsx.writeBuffer();
+    logger.info(`✓ Excel file generated with ${extractedFields.length} fields`);
+
+    return buffer as unknown as Buffer;
   } catch (error: any) {
-    logger.error('Error generating Excel data:', error);
-    throw error;
+    logger.error('Error generating Excel file:', error);
+    throw new AppError(`Failed to generate Excel file: ${error.message}`, 500);
   }
 }
