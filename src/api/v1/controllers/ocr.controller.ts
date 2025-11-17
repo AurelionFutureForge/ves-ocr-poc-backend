@@ -132,22 +132,17 @@ export const extractTemplateFieldsController = async (req: Request, res: Respons
       logger.info(`✓ Page ${currentPageNum}: ${successCount}/${fieldsOnPage.length} fields extracted`);
     }
 
-    const excelData = await generateExcelFile(allExtractedFields, template.name, pageResults);
-
     // Step 3: Generate ONE Excel sheet with all extracted data
     const excelBuffer = await generateExcelFile(allExtractedFields, template.name, pageResults);
 
-    // Create response object with metadata
-    const response = {
+    // Create lean response metadata (only for header, not for body)
+    const metadata = {
       templateId,
       templateName: template.name,
       totalPages: files.length,
       totalFields: allExtractedFields.length,
       successfulExtractions: allExtractedFields.filter((f: any) => f.raw_text).length,
       fileType: 'images',
-      extractedFields: allExtractedFields,
-      pageResults: pageResults,
-      excelData: excelData,
       excel: {
         filename: `${template.name}_extracted_${new Date().toISOString().split('T')[0]}.xlsx`,
         sheetName: `${template.name} - Extract`,
@@ -155,16 +150,22 @@ export const extractTemplateFieldsController = async (req: Request, res: Respons
       }
     };
 
-    logger.info(`✅ Extraction complete: ${response.successfulExtractions}/${response.totalFields} fields extracted from ${files.length} pages`);
-    logger.info(`📊 Excel file generated: ${response.excel.filename}`);
+    logger.info(`✅ Extraction complete: ${metadata.successfulExtractions}/${metadata.totalFields} fields extracted from ${files.length} pages`);
+    logger.info(`📊 Excel file generated: ${metadata.excel.filename}`);
 
     // Send the Excel file as download
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="${response.excel.filename}"`);
-    res.setHeader('X-Extraction-Data', JSON.stringify(response));
+    res.setHeader('Content-Disposition', `attachment; filename="${metadata.excel.filename}"`);
+    res.setHeader('Content-Length', excelBuffer.length);
     
+    // Encode metadata as base64 to avoid invalid header characters
+    const metadataBase64 = Buffer.from(JSON.stringify(metadata)).toString('base64');
+    res.setHeader('X-Extraction-Data', metadataBase64);
+    
+    logger.info('📤 Sending Excel file...');
     return res.send(excelBuffer);
   } catch (error) {
+    console.log(error);
     next(error);
   }
 };
