@@ -7,7 +7,7 @@
     "start": "node dist/src/server.js",
     "dev": "npm run prisma:generate && nodemon -L --watch src --exec ts-node src/server.ts",
     "build": "npm run clean && npm run prisma:generate && npx tsc && tsc-alias && npm run copy-files",
-    "tunnel": "lt --port 8002 --subdomain kitty-magic-chat-backend",
+    "tunnel": "lt --port 8001 --subdomain ves-ocr-backend",
     "test": "jest",
     "test:verbose": "jest --verbose",
     "test:coverage": "jest --coverage",
