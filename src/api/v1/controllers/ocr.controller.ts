@@ -59,13 +59,16 @@ export const processOcrController = async (req: Request, res: Response, next: Ne
   }
 };
 
-// Extract template fields from uploaded image or PDF
-// Simplified API: only requires document, language, templateId
-// Automatically fetches fields from database and generates Excel
+// Extract template fields from uploaded images or multi-part upload
+// Simplified API: Frontend splits PDF into pages and converts to images
+// Backend receives multiple images and produces one Excel sheet
 export const extractTemplateFieldsController = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    if (!req.file) {
-      throw new AppError('No file uploaded', 400);
+    // Support both single file upload and multi-file upload
+    const files = req.files as Express.Multer.File[] || (req.file ? [req.file] : []);
+    
+    if (!files || files.length === 0) {
+      throw new AppError('No files uploaded', 400);
     }
 
     const { templateId, language = 'eng', aggressive = true } = req.body;
@@ -75,6 +78,7 @@ export const extractTemplateFieldsController = async (req: Request, res: Respons
     }
 
     logger.info(`📋 Extracting fields for template: ${templateId}`);
+    logger.info(`📁 Received ${files.length} image(s) from frontend`);
 
     // Step 1: Fetch template and all fields from database
     const templateResponse = await TemplateService.getTemplateById(templateId);
@@ -87,28 +91,16 @@ export const extractTemplateFieldsController = async (req: Request, res: Respons
     const templateFields = template.fields;
     logger.info(`✓ Found ${templateFields.length} fields in template "${template.name}"`);
 
-    // Check if file is PDF
-    const isPDF = req.file.mimetype === 'application/pdf';
-    let pdfPageCount = 1;
-
-    // If PDF, convert to images
-    let pageImages: Buffer[] = [];
-    if (isPDF) {
-      logger.info('🔄 Converting PDF to images...');
-      pageImages = await OcrService.convertPDFToImages(req.file.buffer);
-      pdfPageCount = pageImages.length;
-      logger.info(`✓ PDF converted: ${pdfPageCount} pages`);
-    } else {
-      pageImages = [req.file.buffer];
-    }
-
-    // Step 2: Process each page and extract fields
+    // Step 2: Process each image (each page) and extract fields
     const pageResults: any[] = [];
     const allExtractedFields: any[] = [];
 
-    for (let i = 0; i < pageImages.length; i++) {
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
       const currentPageNum = i + 1;
       
+      logger.info(`📄 Processing page ${currentPageNum}/${files.length}...`);
+
       // Get fields for this page
       const fieldsOnPage = templateFields.filter((f: any) => f.page_number === currentPageNum);
       
@@ -119,9 +111,9 @@ export const extractTemplateFieldsController = async (req: Request, res: Respons
 
       logger.info(`📄 Page ${currentPageNum}: Extracting ${fieldsOnPage.length} fields...`);
 
-      // Extract fields from this page
+      // Extract fields from this page image
       const pageExtractedFields = await OcrService.extractTemplateFields(
-        pageImages[i],
+        file.buffer,
         currentPageNum,
         fieldsOnPage,
         language,
@@ -139,23 +131,23 @@ export const extractTemplateFieldsController = async (req: Request, res: Respons
       logger.info(`✓ Page ${currentPageNum}: ${successCount}/${fieldsOnPage.length} fields extracted`);
     }
 
-    // Step 3: Generate Excel with all extracted data
+    // Step 3: Generate ONE Excel sheet with all extracted data
     const excel = generateExcelData(allExtractedFields, template.name);
 
-    // Flatten results for response
+    // Return combined results
     const response = {
       templateId,
       templateName: template.name,
-      totalPages: pdfPageCount,
+      totalPages: files.length,
       totalFields: allExtractedFields.length,
       successfulExtractions: allExtractedFields.filter((f: any) => f.raw_text).length,
-      fileType: isPDF ? 'pdf' : 'image',
+      fileType: 'images',
       extractedFields: allExtractedFields,
       pageResults: pageResults,
-      excel: excel
+      excel: excel // ← ONE Excel sheet with all pages
     };
 
-    logger.info(`✅ Extraction complete: ${response.successfulExtractions}/${response.totalFields} fields extracted`);
+    logger.info(`✅ Extraction complete: ${response.successfulExtractions}/${response.totalFields} fields extracted from ${files.length} pages`);
 
     sendResponse(res, 200, true, 'Template extraction completed successfully', response);
   } catch (error) {

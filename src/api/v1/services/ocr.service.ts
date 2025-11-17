@@ -4,13 +4,8 @@ import logger from '@/v1/utils/logger';
 import { AppError } from '@/v1/middlewares/errorHandler.middleware';
 import axios from 'axios';
 
-// PDF support (optional - will be imported dynamically)
-let pdfjsLib: any = null;
-try {
-  pdfjsLib = require('pdfjs-dist/legacy/build/pdf');
-} catch (e) {
-  logger.warn('pdfjs-dist not installed. PDF support disabled. Run: npm install pdfjs-dist canvas');
-}
+// Note: PDF to Images conversion is now handled by Frontend
+// Backend no longer needs to convert PDFs - frontend splits and sends images
 
 interface OcrResponse {
   status: number;
@@ -31,81 +26,6 @@ interface BoundingBox {
 ---------------------------------------------------------*/
 const OCR_ENGINE = process.env.OCR_ENGINE || 'tesseract'; // 'tesseract', 'ocrspace', 'google-vision'
 
-/* -------------------------------------------------------
-   PDF TO IMAGES CONVERSION
----------------------------------------------------------*/
-export async function convertPDFToImages(pdfBuffer: Buffer): Promise<Buffer[]> {
-  try {
-    if (!pdfjsLib) {
-      throw new Error('PDF support not installed. Run: npm install pdfjs-dist canvas');
-    }
-
-    logger.info('Converting PDF to images...');
-
-    // Get the PDF document
-    const pdf = await pdfjsLib.getDocument({ data: pdfBuffer }).promise;
-    const numPages = pdf.numPages;
-    
-    logger.info(`PDF has ${numPages} pages`);
-
-    const images: Buffer[] = [];
-
-    // Convert each page to image
-    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-      try {
-        const page = await pdf.getPage(pageNum);
-        
-        // Get page viewport
-        const viewport = page.getViewport({ scale: 2 }); // 2x scale for better quality
-        
-        // Create canvas-like object using node-canvas or similar
-        // For Node.js, we'll use a different approach - render to PNG using pdfjsLib
-        const canvas = await renderPageToCanvas(page, viewport);
-        
-        // Convert canvas to buffer
-        const imageBuffer = await canvas.toBuffer('image/png');
-        images.push(imageBuffer);
-        
-        logger.info(`✓ Page ${pageNum}/${numPages} converted to image`);
-      } catch (pageError: any) {
-        logger.error(`Error converting page ${pageNum}:`, pageError);
-        throw new Error(`Failed to convert PDF page ${pageNum}: ${pageError.message}`);
-      }
-    }
-
-    logger.info(`Successfully converted ${images.length} pages from PDF`);
-    return images;
-  } catch (error: any) {
-    logger.error('PDF conversion error:', error);
-    throw new AppError(`Failed to convert PDF to images: ${error.message}`, 400);
-  }
-}
-
-/* -------------------------------------------------------
-   RENDER PDF PAGE TO CANVAS (For Node.js)
----------------------------------------------------------*/
-async function renderPageToCanvas(page: any, viewport: any): Promise<any> {
-  try {
-    // Use Canvas library for Node.js rendering
-    const { createCanvas } = require('canvas');
-    
-    const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
-    const context = canvas.getContext('2d');
-
-    // Render PDF page to canvas
-    const renderContext = {
-      canvasContext: context,
-      viewport: viewport,
-    };
-
-    await page.render(renderContext).promise;
-    return canvas;
-  } catch (error: any) {
-    // Fallback: If canvas not available, return empty image
-    logger.warn('Canvas rendering failed, using fallback:', error.message);
-    throw error;
-  }
-}
 
 /* -------------------------------------------------------
    ADVANCED IMAGE PREPROCESSING

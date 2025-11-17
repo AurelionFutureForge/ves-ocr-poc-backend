@@ -38,21 +38,32 @@ router.post('/upload', upload.single('image'), processOcrController);
 
 /**
  * @route POST /api/v1/ocr/extract-template-fields
- * @desc Extract template fields from uploaded image or PDF
- * Automatically fetches fields from database using templateId
- * Generates Excel with extracted data
+ * @desc Extract template fields from multiple images (frontend splits PDF into pages)
+ * Frontend responsibility: Split PDF → Convert each page to image → Send all images
+ * Backend responsibility: Fetch template fields → Process each image → Generate ONE Excel
  * @access Public
- * @body {file} image - Image file (JPG, PNG, WEBP, TIFF, BMP) or PDF
+ * @body {files} images - Multiple image files (JPG, PNG, WEBP, etc)
+ *                       Frontend splits PDF pages and sends as individual images
  * @body {string} templateId - Template ID (required - used to fetch fields)
  * @body {string} language - Optional language code (default: 'eng')
  * @body {boolean} aggressive - Optional aggressive preprocessing (default: true)
  * 
  * @workflow
- * Step 1: Fetch template and all fields from database using templateId
- * Step 2: If image → extract page 1 fields → generate Excel
- *         If PDF → convert to pages → extract fields per page → generate Excel
- * Step 3: Return extracted data + Excel format
+ * Frontend:
+ *   1. Load PDF
+ *   2. Split into pages
+ *   3. Convert each page → PNG/JPG image
+ *   4. Send all images to backend
+ * 
+ * Backend:
+ *   1. Receive N images (one per page)
+ *   2. Fetch template fields from database
+ *   3. For each image → extract fields for that page_number
+ *   4. Combine all results
+ *   5. Generate ONE Excel sheet with all pages
+ * 
+ * Result: ONE Excel file with data from all pages
  */
-router.post('/extract-template-fields', upload.single('image'), extractTemplateFieldsController);
+router.post('/extract-template-fields', upload.array('images', 100), extractTemplateFieldsController);
 
 export default router;
