@@ -1,6 +1,6 @@
 import express, { Router } from 'express';
 import multer from 'multer';
-import { processOcrController } from '@/v1/controllers/ocr.controller';
+import { processOcrController, extractTemplateFieldsController } from '@/v1/controllers/ocr.controller';
 
 const router: Router = express.Router();
 
@@ -36,5 +36,23 @@ const upload = multer({
  */
 router.post('/upload', upload.single('image'), processOcrController);
 
-export default router;
+/**
+ * @route POST /api/v1/ocr/extract-template-fields
+ * @desc Extract template fields from uploaded image or PDF
+ * Automatically fetches fields from database using templateId
+ * Generates Excel with extracted data
+ * @access Public
+ * @body {file} image - Image file (JPG, PNG, WEBP, TIFF, BMP) or PDF
+ * @body {string} templateId - Template ID (required - used to fetch fields)
+ * @body {string} language - Optional language code (default: 'eng')
+ * @body {boolean} aggressive - Optional aggressive preprocessing (default: true)
+ * 
+ * @workflow
+ * Step 1: Fetch template and all fields from database using templateId
+ * Step 2: If image → extract page 1 fields → generate Excel
+ *         If PDF → convert to pages → extract fields per page → generate Excel
+ * Step 3: Return extracted data + Excel format
+ */
+router.post('/extract-template-fields', upload.single('image'), extractTemplateFieldsController);
 
+export default router;

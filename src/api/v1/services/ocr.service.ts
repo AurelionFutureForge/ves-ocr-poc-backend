@@ -4,6 +4,14 @@ import logger from '@/v1/utils/logger';
 import { AppError } from '@/v1/middlewares/errorHandler.middleware';
 import axios from 'axios';
 
+// PDF support (optional - will be imported dynamically)
+let pdfjsLib: any = null;
+try {
+  pdfjsLib = require('pdfjs-dist/legacy/build/pdf');
+} catch (e) {
+  logger.warn('pdfjs-dist not installed. PDF support disabled. Run: npm install pdfjs-dist canvas');
+}
+
 interface OcrResponse {
   status: number;
   success: boolean;
@@ -22,6 +30,82 @@ interface BoundingBox {
    CONFIGURATION - OCR ENGINE SELECTION
 ---------------------------------------------------------*/
 const OCR_ENGINE = process.env.OCR_ENGINE || 'tesseract'; // 'tesseract', 'ocrspace', 'google-vision'
+
+/* -------------------------------------------------------
+   PDF TO IMAGES CONVERSION
+---------------------------------------------------------*/
+export async function convertPDFToImages(pdfBuffer: Buffer): Promise<Buffer[]> {
+  try {
+    if (!pdfjsLib) {
+      throw new Error('PDF support not installed. Run: npm install pdfjs-dist canvas');
+    }
+
+    logger.info('Converting PDF to images...');
+
+    // Get the PDF document
+    const pdf = await pdfjsLib.getDocument({ data: pdfBuffer }).promise;
+    const numPages = pdf.numPages;
+    
+    logger.info(`PDF has ${numPages} pages`);
+
+    const images: Buffer[] = [];
+
+    // Convert each page to image
+    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+      try {
+        const page = await pdf.getPage(pageNum);
+        
+        // Get page viewport
+        const viewport = page.getViewport({ scale: 2 }); // 2x scale for better quality
+        
+        // Create canvas-like object using node-canvas or similar
+        // For Node.js, we'll use a different approach - render to PNG using pdfjsLib
+        const canvas = await renderPageToCanvas(page, viewport);
+        
+        // Convert canvas to buffer
+        const imageBuffer = await canvas.toBuffer('image/png');
+        images.push(imageBuffer);
+        
+        logger.info(`✓ Page ${pageNum}/${numPages} converted to image`);
+      } catch (pageError: any) {
+        logger.error(`Error converting page ${pageNum}:`, pageError);
+        throw new Error(`Failed to convert PDF page ${pageNum}: ${pageError.message}`);
+      }
+    }
+
+    logger.info(`Successfully converted ${images.length} pages from PDF`);
+    return images;
+  } catch (error: any) {
+    logger.error('PDF conversion error:', error);
+    throw new AppError(`Failed to convert PDF to images: ${error.message}`, 400);
+  }
+}
+
+/* -------------------------------------------------------
+   RENDER PDF PAGE TO CANVAS (For Node.js)
+---------------------------------------------------------*/
+async function renderPageToCanvas(page: any, viewport: any): Promise<any> {
+  try {
+    // Use Canvas library for Node.js rendering
+    const { createCanvas } = require('canvas');
+    
+    const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+    const context = canvas.getContext('2d');
+
+    // Render PDF page to canvas
+    const renderContext = {
+      canvasContext: context,
+      viewport: viewport,
+    };
+
+    await page.render(renderContext).promise;
+    return canvas;
+  } catch (error: any) {
+    // Fallback: If canvas not available, return empty image
+    logger.warn('Canvas rendering failed, using fallback:', error.message);
+    throw error;
+  }
+}
 
 /* -------------------------------------------------------
    ADVANCED IMAGE PREPROCESSING
@@ -581,67 +665,149 @@ export async function processOcrFromUrl(
    EXTRACT TEXT FROM REGION - FOR TEMPLATE FIELDS
 ---------------------------------------------------------*/
 export async function extractTextFromRegion(
+   imageBuffer: Buffer,
+   region: {
+     x_norm: number;
+     y_norm: number;
+     w_norm: number;
+     h_norm: number;
+     page_number?: number;
+   },
+   aggressive: boolean = false,
+   language: string = 'eng'
+ ): Promise<{ text: string; confidence: number; notes: string | null }> {
+   try {
+     // Get image metadata to convert normalized coords to pixels
+     const metadata = await sharp(imageBuffer).metadata();
+     const imageWidth = metadata.width || 1000;
+     const imageHeight = metadata.height || 1000;
+ 
+     // Convert normalized coordinates to pixels
+     const x = Math.round(region.x_norm * imageWidth);
+     const y = Math.round(region.y_norm * imageHeight);
+     const w = Math.round(region.w_norm * imageWidth);
+     const h = Math.round(region.h_norm * imageHeight);
+ 
+     logger.info(`Extracting region: x=${x}, y=${y}, w=${w}, h=${h} from ${imageWidth}x${imageHeight}`);
+ 
+     // Extract the region from the image
+     let regionBuffer = await sharp(imageBuffer)
+       .extract({
+         left: Math.max(0, x),
+         top: Math.max(0, y),
+         width: Math.min(w, imageWidth - x),
+         height: Math.min(h, imageHeight - y),
+       })
+       .toBuffer();
+ 
+     // Preprocess the extracted region
+     regionBuffer = await preprocessImage(regionBuffer, aggressive);
+ 
+     // Run OCR on the region
+     const result = await processWithTesseract(regionBuffer, language);
+ 
+     const text = (result.text || '').trim();
+     const confidence = result.confidence || 0;
+ 
+     // Determine if text was found
+     let notes: string | null = null;
+     if (text.length === 0) {
+       notes = 'No text detected in marked region';
+     } else if (confidence < 50) {
+       notes = 'Low confidence - text may be unclear or partially obscured';
+     }
+ 
+     logger.info(`Region extraction: text="${text.substring(0, 50)}", confidence=${confidence}%`);
+ 
+     return {
+       text,
+       confidence,
+       notes,
+     };
+   } catch (error: any) {
+     logger.error('Error extracting region:', error);
+     throw new AppError(`Failed to extract text from region: ${error.message}`, 500);
+   }
+}
+
+/* -------------------------------------------------------
+   EXTRACT TEMPLATE FIELDS FROM IMAGE
+---------------------------------------------------------*/
+export async function extractTemplateFields(
   imageBuffer: Buffer,
-  region: {
+  pageNumber: number,
+  templateFields: Array<{
+    field_id: string;
+    field_name: string;
+    page_number: number;
     x_norm: number;
     y_norm: number;
     w_norm: number;
     h_norm: number;
-    page_number?: number;
-  },
-  aggressive: boolean = false,
-  language: string = 'eng'
-): Promise<{ text: string; confidence: number; notes: string | null }> {
+  }>,
+  language: string = 'eng',
+  aggressive: boolean = true
+): Promise<Array<{
+  field_id: string;
+  field_name: string;
+  raw_text: string | null;
+  confidence: number;
+  notes: string | null;
+}>> {
   try {
-    // Get image metadata to convert normalized coords to pixels
-    const metadata = await sharp(imageBuffer).metadata();
-    const imageWidth = metadata.width || 1000;
-    const imageHeight = metadata.height || 1000;
+    // Filter fields for this page
+    const fieldsOnPage = templateFields.filter(f => f.page_number === pageNumber);
+    
+    logger.info(`Extracting ${fieldsOnPage.length} fields from page ${pageNumber}`);
 
-    // Convert normalized coordinates to pixels
-    const x = Math.round(region.x_norm * imageWidth);
-    const y = Math.round(region.y_norm * imageHeight);
-    const w = Math.round(region.w_norm * imageWidth);
-    const h = Math.round(region.h_norm * imageHeight);
+    const results: Array<{
+      field_id: string;
+      field_name: string;
+      raw_text: string | null;
+      confidence: number;
+      notes: string | null;
+    }> = [];
 
-    logger.info(`Extracting region: x=${x}, y=${y}, w=${w}, h=${h} from ${imageWidth}x${imageHeight}`);
+    // Extract each field
+    for (const field of fieldsOnPage) {
+      try {
+        const extraction = await extractTextFromRegion(
+          imageBuffer,
+          {
+            x_norm: field.x_norm,
+            y_norm: field.y_norm,
+            w_norm: field.w_norm,
+            h_norm: field.h_norm,
+            page_number: pageNumber
+          },
+          aggressive,
+          language
+        );
 
-    // Extract the region from the image
-    let regionBuffer = await sharp(imageBuffer)
-      .extract({
-        left: Math.max(0, x),
-        top: Math.max(0, y),
-        width: Math.min(w, imageWidth - x),
-        height: Math.min(h, imageHeight - y),
-      })
-      .toBuffer();
+        results.push({
+          field_id: field.field_id,
+          field_name: field.field_name,
+          raw_text: extraction.text || null,
+          confidence: extraction.confidence,
+          notes: extraction.notes
+        });
 
-    // Preprocess the extracted region
-    regionBuffer = await preprocessImage(regionBuffer, aggressive);
-
-    // Run OCR on the region
-    const result = await processWithTesseract(regionBuffer, language);
-
-    const text = (result.text || '').trim();
-    const confidence = result.confidence || 0;
-
-    // Determine if text was found
-    let notes: string | null = null;
-    if (text.length === 0) {
-      notes = 'No text detected in marked region';
-    } else if (confidence < 50) {
-      notes = 'Low confidence - text may be unclear or partially obscured';
+        logger.info(`Field "${field.field_name}": "${extraction.text?.substring(0, 30)}..." (${extraction.confidence}%)`);
+      } catch (fieldError: any) {
+        logger.error(`Error extracting field "${field.field_name}":`, fieldError);
+        results.push({
+          field_id: field.field_id,
+          field_name: field.field_name,
+          raw_text: null,
+          confidence: 0,
+          notes: `Error: ${fieldError.message}`
+        });
+      }
     }
 
-    logger.info(`Region extraction: text="${text.substring(0, 50)}", confidence=${confidence}%`);
-
-    return {
-      text,
-      confidence,
-      notes,
-    };
+    return results;
   } catch (error: any) {
-    logger.error('Error extracting region:', error);
-    throw new AppError(`Failed to extract text from region: ${error.message}`, 500);
+    logger.error('Error extracting template fields:', error);
+    throw new AppError(`Failed to extract template fields: ${error.message}`, 500);
   }
 }
