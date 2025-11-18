@@ -101,7 +101,9 @@ export const deleteTemplateFieldController = async (req: Request, res: Response,
 // Verify field OCR
 export const verifyFieldOcrController = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { template_id, field_id, aggressive } = VerifyFieldOcrSchema.parse({ params: req.params, body: req.body });
+    const { template_id, field_id, aggressive } = VerifyFieldOcrSchema.parse({ params: req.params , query: req.query });
+
+    console.log(aggressive)
 
     // Get file from request
     if (!req.file) {

@@ -1,3 +1,4 @@
+import { query } from 'express';
 import { z } from 'zod';
 
 // Get all templates schema
@@ -128,11 +129,11 @@ export const VerifyFieldOcrSchema = z.object({
     template_id: z.string().uuid("Invalid template ID format"),
     field_id: z.string().uuid("Invalid field ID format"),
   }),
-  body: z.object({
-    aggressive: z.boolean().optional(),
-  }),
-}).transform(({ params, body }) => ({
+  query: z.object({
+    aggressive: z.string().optional().transform((val) => val === 'true'),
+  })
+}).transform(({ params, query }) => ({
   template_id: params.template_id,
   field_id: params.field_id,
-  aggressive: body.aggressive ?? false,
+  aggressive: query.aggressive ?? false,
 }));

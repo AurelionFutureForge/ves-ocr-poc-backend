@@ -608,7 +608,22 @@ export async function extractTextFromRegion(
      const w = Math.round(region.w_norm * imageWidth);
      const h = Math.round(region.h_norm * imageHeight);
  
-     logger.info(`Extracting region: x=${x}, y=${y}, w=${w}, h=${h} from ${imageWidth}x${imageHeight}`);
+     logger.info(`📍 Extracting region: x=${x}, y=${y}, w=${w}, h=${h} from ${imageWidth}x${imageHeight} image`);
+     logger.info(`📐 Normalized coords: x_norm=${region.x_norm}, y_norm=${region.y_norm}, w_norm=${region.w_norm}, h_norm=${region.h_norm}`);
+ 
+     // Validate region dimensions
+     if (w <= 0 || h <= 0) {
+       logger.error(`❌ Invalid region dimensions: width=${w}, height=${h}`);
+       return {
+         text: '',
+         confidence: 0,
+         notes: 'Invalid region dimensions - width or height is zero or negative',
+       };
+     }
+ 
+     if (w < 10 || h < 10) {
+       logger.warn(`⚠️ Region is very small: ${w}x${h} pixels - OCR may fail`);
+     }
  
      // Extract the region from the image
      let regionBuffer = await sharp(imageBuffer)
@@ -620,35 +635,62 @@ export async function extractTextFromRegion(
        })
        .toBuffer();
  
-     // Preprocess the extracted region
-     regionBuffer = await preprocessImage(regionBuffer, aggressive);
+     // Get extracted region metadata for logging
+     const extractedMetadata = await sharp(regionBuffer).metadata();
+     logger.info(`📦 Extracted region size: ${extractedMetadata.width}x${extractedMetadata.height}`);
  
-     // Run OCR on the region
-     const result = await processWithTesseract(regionBuffer, language);
+     // Try OCR without preprocessing first
+     logger.info(`🔍 Running OCR without preprocessing first...`);
+     const rawResult = await processWithTesseract(regionBuffer, language);
+     const rawText = (rawResult.text || '').trim();
+     const rawConfidence = rawResult.confidence || 0;
  
-     const text = (result.text || '').trim();
-     const confidence = result.confidence || 0;
+     logger.info(`📝 Raw OCR result: text="${rawText}" (${rawText.length} chars), confidence=${rawConfidence}%`);
+ 
+     // If raw OCR found text, use it
+     if (rawText.length > 0) {
+       let notes: string | null = null;
+       if (rawConfidence < 50) {
+         notes = 'Low confidence - text may be unclear or partially obscured';
+       }
+       
+       logger.info(`✅ Successfully extracted text without preprocessing`);
+       return {
+         text: rawText,
+         confidence: rawConfidence,
+         notes,
+       };
+     }
+ 
+     // If raw OCR failed, try with preprocessing
+     logger.info(`🔧 Raw OCR found no text, trying with preprocessing (aggressive=${aggressive})...`);
+     const preprocessedBuffer = await preprocessImage(regionBuffer, aggressive);
+     const processedResult = await processWithTesseract(preprocessedBuffer, language);
+     
+     const processedText = (processedResult.text || '').trim();
+     const processedConfidence = processedResult.confidence || 0;
+ 
+     logger.info(`📝 Preprocessed OCR result: text="${processedText}" (${processedText.length} chars), confidence=${processedConfidence}%`);
  
      // Determine if text was found
      let notes: string | null = null;
-     if (text.length === 0) {
-       notes = 'No text detected in marked region';
-     } else if (confidence < 50) {
+     if (processedText.length === 0) {
+       notes = 'No text detected in marked region. Try adjusting the field boundaries or check if the region captures the actual text.';
+       logger.warn(`⚠️ No text extracted after preprocessing. Confidence: ${processedConfidence}%`);
+     } else if (processedConfidence < 50) {
        notes = 'Low confidence - text may be unclear or partially obscured';
      }
  
-     logger.info(`Region extraction: text="${text.substring(0, 50)}", confidence=${confidence}%`);
- 
      return {
-       text,
-       confidence,
+       text: processedText,
+       confidence: processedConfidence,
        notes,
      };
    } catch (error: any) {
-     logger.error('Error extracting region:', error);
+     logger.error('❌ Error extracting region:', error);
      throw new AppError(`Failed to extract text from region: ${error.message}`, 500);
    }
-}
+ }
 
 /* -------------------------------------------------------
    EXTRACT TEMPLATE FIELDS FROM IMAGE

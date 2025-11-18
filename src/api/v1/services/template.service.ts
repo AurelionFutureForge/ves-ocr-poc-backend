@@ -445,19 +445,22 @@ export const verifyFieldOcr = async (
     let fieldStatus = "pending";
     let notes = extractedData.notes; // Start with OCR extraction notes
     
-    if (extractedData.confidence !== null && extractedData.confidence !== undefined) {
-      if (extractedData.confidence >= 85 && extractedData.text.trim().length > 0) {
+    // If no text was extracted, set confidence to 0 (high confidence without text is meaningless)
+    let actualConfidence = extractedData.confidence;
+    if (extractedData.text.trim().length === 0) {
+      actualConfidence = 0;
+      fieldStatus = "no_data";
+      notes = extractedData.notes || "No text detected in marked region. Please manually enter the data for this field.";
+    } else if (extractedData.confidence !== null && extractedData.confidence !== undefined) {
+      if (extractedData.confidence >= 85) {
         fieldStatus = "good";
         notes = null; // No review needed for high confidence
-      } else if (extractedData.confidence >= 50 && extractedData.text.trim().length > 0) {
+      } else if (extractedData.confidence >= 50) {
         fieldStatus = "medium_confidence";
         notes = `Human Review Recommended: Confidence is moderate (${extractedData.confidence.toFixed(1)}%). Please verify the extracted text: "${extractedData.text}" before using it. You might need manual verification for this field.`;
-      } else if (extractedData.confidence < 50 && extractedData.text.trim().length > 0) {
+      } else {
         fieldStatus = "low_confidence";
         notes = `Human Review Required: Confidence is low (${extractedData.confidence.toFixed(1)}%). Extracted text: "${extractedData.text}". Manual verification is strongly recommended before converting this field.`;
-      } else if (extractedData.text.trim().length === 0) {
-        fieldStatus = "no_data";
-        notes = extractedData.notes || "No text detected in marked region. Please manually enter the data for this field.";
       }
     }
 
@@ -466,7 +469,7 @@ export const verifyFieldOcr = async (
       where: { field_id },
       data: {
         sample_extracted_value: extractedData.text || null,
-        confidence_score: extractedData.confidence || null,
+        confidence_score: actualConfidence || null,
         field_status: fieldStatus,
         notes: notes,
       },
@@ -539,13 +542,19 @@ export const extractOcrFromTemplate = async (
 
         // Determine field status based on confidence
         let fieldStatus = "pending";
-        if (extractedData.confidence !== null && extractedData.confidence !== undefined) {
-          if (extractedData.confidence >= 85 && extractedData.text.trim().length > 0) {
+        let actualConfidence = extractedData.confidence;
+        
+        // If no text was extracted, set confidence to 0
+        if (extractedData.text.trim().length === 0) {
+          actualConfidence = 0;
+          fieldStatus = "no_data";
+        } else if (extractedData.confidence !== null && extractedData.confidence !== undefined) {
+          if (extractedData.confidence >= 85) {
             fieldStatus = "good";
-          } else if (extractedData.confidence >= 50 && extractedData.text.trim().length > 0) {
+          } else if (extractedData.confidence >= 50) {
+            fieldStatus = "medium_confidence";
+          } else {
             fieldStatus = "low_confidence";
-          } else if (extractedData.text.trim().length === 0) {
-            fieldStatus = "no_data";
           }
         }
 
@@ -554,7 +563,7 @@ export const extractOcrFromTemplate = async (
           where: { field_id: field.field_id },
           data: {
             sample_extracted_value: extractedData.text || null,
-            confidence_score: extractedData.confidence || null,
+            confidence_score: actualConfidence || null,
             field_status: fieldStatus,
             notes: extractedData.notes || null,
           },
